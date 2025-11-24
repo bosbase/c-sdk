@@ -1,0 +1,2 @@
+/usr/bin/ar qc libbosbase.a CMakeFiles/bosbase.dir/src/client.cpp.o CMakeFiles/bosbase.dir/src/auth_store.cpp.o CMakeFiles/bosbase.dir/src/base_service.cpp.o CMakeFiles/bosbase.dir/src/record_service.cpp.o CMakeFiles/bosbase.dir/src/realtime.cpp.o CMakeFiles/bosbase.dir/src/pubsub.cpp.o
+/usr/bin/ranlib libbosbase.a

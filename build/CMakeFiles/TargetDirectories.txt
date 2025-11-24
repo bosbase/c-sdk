@@ -1,0 +1,14 @@
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/bosbase_c.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/edit_cache.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/rebuild_cache.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/list_install_components.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/install.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/install/local.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/CMakeFiles/install/strip.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/bosbase.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/edit_cache.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/rebuild_cache.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/list_install_components.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/install.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/install/local.dir
+/home/darkmoon/Documents/rbosbase/c-sdk/build/cpp-sdk/CMakeFiles/install/strip.dir
