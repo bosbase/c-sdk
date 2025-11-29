@@ -58,10 +58,13 @@ int main() {
 - Record/collection CRUD and auth helpers (password flows, verification, password reset)
 - Realtime subscriptions on collections
 - File URLs/tokens
-- Health and GraphQL
-- Vector endpoints (collections, documents, search)
-- Cache endpoints
+- Health, GraphQL, and SQL execution
+- Vector endpoints (collections, documents, search) with explicit `collection` arguments matching `/api/vectors/*`
+- Cache endpoints (create/update/delete caches and entries)
+- Backups, crons, logs, settings (including Apple client secret generator and test helpers)
+- LangChaingo and LLM document endpoints
+- Batch helpers for queuing multi-record operations
 - Pub/Sub publish/subscribe
-- Generic `bosbase_send` for any other API route (backups, crons, settings, langchaingo, etc.)
+- Generic `bosbase_send` for any other API route
 
 Because the wrapper is built directly on top of the C++ SDK, any new backend feature added there is immediately reachable from C via `bosbase_send` or by extending the thin helper set in `bosbase_c.h`.

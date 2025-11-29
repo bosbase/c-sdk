@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -149,6 +150,11 @@ struct bosbase_subscription {
     std::shared_ptr<SubscriptionHolder> holder;
 };
 
+struct bosbase_batch {
+    bosbase_client* owner;
+    std::unique_ptr<bosbase::BatchService> impl;
+};
+
 void bosbase_free_string(char* str) {
     std::free(str);
 }
@@ -172,6 +178,20 @@ bosbase_client* bosbase_client_new(const char* base_url, const char* lang) {
 
 void bosbase_client_free(bosbase_client* client) {
     delete client;
+}
+
+bosbase_batch* bosbase_batch_new(bosbase_client* client) {
+    if (!client || !client->impl) return nullptr;
+    auto batch = client->impl->createBatch();
+    if (!batch) return nullptr;
+    auto* wrapper = new bosbase_batch();
+    wrapper->owner = client;
+    wrapper->impl = std::move(batch);
+    return wrapper;
+}
+
+void bosbase_batch_free(bosbase_batch* batch) {
+    delete batch;
 }
 
 const char* bosbase_auth_token(bosbase_client* client) {
@@ -698,6 +718,33 @@ int bosbase_graphql_query(
     }
 }
 
+int bosbase_sql_execute(
+    bosbase_client* client,
+    const char* query,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query_params = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            auto result = client->impl->sql->execute(query ? query : "", query_params, headers);
+            nlohmann::json payload;
+            payload["columns"] = result.columns;
+            payload["rows"] = result.rows;
+            if (result.rowsAffected) payload["rowsAffected"] = *result.rowsAffected;
+            return payload;
+        }, out_json, out_error);
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
+}
+
 int bosbase_vector_create_collection(
     bosbase_client* client,
     const char* name,
@@ -708,11 +755,7 @@ int bosbase_vector_create_collection(
     bosbase_error** out_error) {
     if (!client || !client->impl) return -1;
     try {
-        nlohmann::json body;
-        body["name"] = name ? name : "";
-        if (config_json && *config_json) {
-            body["config"] = parse_json_or(config_json, nlohmann::json::object());
-        }
+        auto body = parse_json_or(config_json, nlohmann::json::object());
         auto query = parse_query(query_json);
         auto headers = parse_headers(headers_json);
         bosbase::SendOptions opts;
@@ -721,7 +764,34 @@ int bosbase_vector_create_collection(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/collections", std::move(opts));
+            return client->impl->send("/api/vectors/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_vector_update_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* config_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(config_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "PATCH";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/vectors/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -743,7 +813,7 @@ int bosbase_vector_list_collections(
             bosbase::SendOptions opts;
             opts.query = query;
             opts.headers = headers;
-            return client->impl->send("/api/vector/collections", std::move(opts));
+            return client->impl->send("/api/vectors/collections", std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -766,7 +836,7 @@ int bosbase_vector_delete_collection(
             opts.method = "DELETE";
             opts.query = query;
             opts.headers = headers;
-            client->impl->send("/api/vector/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
+            client->impl->send("/api/vectors/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
         }, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -776,6 +846,7 @@ int bosbase_vector_delete_collection(
 
 int bosbase_vector_insert(
     bosbase_client* client,
+    const char* collection,
     const char* document_json,
     const char* query_json,
     const char* headers_json,
@@ -792,7 +863,7 @@ int bosbase_vector_insert(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/documents", std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : ""), std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -802,6 +873,7 @@ int bosbase_vector_insert(
 
 int bosbase_vector_batch_insert(
     bosbase_client* client,
+    const char* collection,
     const char* options_json,
     const char* query_json,
     const char* headers_json,
@@ -818,7 +890,7 @@ int bosbase_vector_batch_insert(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/documents/batch", std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : "") + "/documents/batch", std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -828,6 +900,7 @@ int bosbase_vector_batch_insert(
 
 int bosbase_vector_get(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* query_json,
     const char* headers_json,
@@ -841,7 +914,7 @@ int bosbase_vector_get(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/documents/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -851,6 +924,7 @@ int bosbase_vector_get(
 
 int bosbase_vector_update(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* document_json,
     const char* query_json,
@@ -868,7 +942,7 @@ int bosbase_vector_update(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/documents/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -878,6 +952,7 @@ int bosbase_vector_update(
 
 int bosbase_vector_delete(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* query_json,
     const char* headers_json,
@@ -891,7 +966,7 @@ int bosbase_vector_delete(
             opts.method = "DELETE";
             opts.query = query;
             opts.headers = headers;
-            client->impl->send("/api/vector/documents/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+            client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
         }, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -901,6 +976,9 @@ int bosbase_vector_delete(
 
 int bosbase_vector_list(
     bosbase_client* client,
+    const char* collection,
+    int page,
+    int per_page,
     const char* query_json,
     const char* headers_json,
     char** out_json,
@@ -909,11 +987,13 @@ int bosbase_vector_list(
     try {
         auto query = parse_query(query_json);
         auto headers = parse_headers(headers_json);
+        if (page > 0) query["page"] = page;
+        if (per_page > 0) query["perPage"] = per_page;
         return wrap_json([&]() {
             bosbase::SendOptions opts;
             opts.query = query;
             opts.headers = headers;
-            return client->impl->send("/api/vector/documents", std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : ""), std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -923,6 +1003,7 @@ int bosbase_vector_list(
 
 int bosbase_vector_search(
     bosbase_client* client,
+    const char* collection,
     const char* options_json,
     const char* query_json,
     const char* headers_json,
@@ -939,7 +1020,7 @@ int bosbase_vector_search(
         opts.query = query;
         opts.headers = headers;
         return wrap_json([&]() {
-            return client->impl->send("/api/vector/search", std::move(opts));
+            return client->impl->send("/api/vectors/" + bosbase::encodePathSegment(collection ? collection : "") + "/documents/search", std::move(opts));
         }, out_json, out_error);
     } catch (const std::exception& ex) {
         if (out_error) *out_error = make_error(ex.what());
@@ -1007,6 +1088,47 @@ int bosbase_cache_create(
     }
 }
 
+int bosbase_cache_update(
+    bosbase_client* client,
+    const char* name,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->caches->update(name ? name : "", body, query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_cache_delete(
+    bosbase_client* client,
+    const char* name,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_void([&]() {
+            client->impl->caches->remove(name ? name : "", query, headers);
+        }, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
 int bosbase_cache_set_entry(
     bosbase_client* client,
     const char* cache,
@@ -1056,6 +1178,32 @@ int bosbase_cache_get_entry(
     }
 }
 
+int bosbase_cache_renew_entry(
+    bosbase_client* client,
+    const char* cache,
+    const char* key,
+    int ttl_seconds,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        std::optional<int> ttl;
+        if (ttl_seconds >= 0) ttl = ttl_seconds;
+        return wrap_json([&]() {
+            return client->impl->caches->renewEntry(cache ? cache : "", key ? key : "", ttl, body, query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
 int bosbase_cache_delete_entry(
     bosbase_client* client,
     const char* cache,
@@ -1074,6 +1222,795 @@ int bosbase_cache_delete_entry(
         if (out_error) *out_error = make_error(ex.what());
         return -1;
     }
+}
+
+int bosbase_backup_get_full_list(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->backups->getFullList(query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_backup_create(
+    bosbase_client* client,
+    const char* basename,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->backups->create(basename ? basename : "", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_backup_upload(
+    bosbase_client* client,
+    const bosbase_file_attachment* file,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto attachments = convert_files(file, file ? 1 : 0);
+        if (attachments.empty()) {
+            throw std::runtime_error("file is required for backup upload");
+        }
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->backups->upload(attachments.front(), query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_backup_delete(
+    bosbase_client* client,
+    const char* key,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_void([&]() {
+            client->impl->backups->remove(key ? key : "", query, headers);
+        }, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_backup_restore(
+    bosbase_client* client,
+    const char* key,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->backups->restore(key ? key : "", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_backup_get_download_url(
+    bosbase_client* client,
+    const char* token,
+    const char* key,
+    char** out_url,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto url = client->impl->backups->getDownloadURL(token ? token : "", key ? key : "");
+        if (out_url) *out_url = dup_string(url);
+        return 0;
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_cron_get_full_list(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->crons->getFullList(query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_cron_run(
+    bosbase_client* client,
+    const char* job_id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->crons->run(job_id ? job_id : "", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_logs_get_list(
+    bosbase_client* client,
+    int page,
+    int per_page,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->logs->getList(page, per_page, query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_logs_get_one(
+    bosbase_client* client,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->logs->getOne(id ? id : "", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_logs_get_stats(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->logs->getStats(query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_settings_get_all(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->settings->getAll(query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_settings_update(
+    bosbase_client* client,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->settings->update(body, query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_settings_test_s3(
+    bosbase_client* client,
+    const char* filesystem,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->settings->testS3(filesystem && *filesystem ? filesystem : "storage", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_settings_test_email(
+    bosbase_client* client,
+    const char* collection,
+    const char* to_email,
+    const char* template_name,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->settings->testEmail(collection ? collection : "", to_email ? to_email : "", template_name ? template_name : "", query, headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_settings_generate_apple_client_secret(
+    bosbase_client* client,
+    const char* client_id,
+    const char* team_id,
+    const char* key_id,
+    const char* private_key,
+    int duration,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return client->impl->settings->generateAppleClientSecret(
+                client_id ? client_id : "",
+                team_id ? team_id : "",
+                key_id ? key_id : "",
+                private_key ? private_key : "",
+                duration,
+                query,
+                headers);
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_langchaingo_completions(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(payload_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/langchaingo/completions", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_langchaingo_rag(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(payload_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/langchaingo/rag", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_langchaingo_query_documents(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(payload_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/langchaingo/documents/query", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_langchaingo_sql(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(payload_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/langchaingo/sql", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_list_collections(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            bosbase::SendOptions opts;
+            opts.query = query;
+            opts.headers = headers;
+            return client->impl->send("/api/llm-documents/collections", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_create_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* metadata_json,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        auto body = parse_json_or(metadata_json, nlohmann::json::object());
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body.is_null() ? nlohmann::json::object() : body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_void([&]() {
+            client->impl->send("/api/llm-documents/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
+        }, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_delete_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "DELETE";
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_void([&]() {
+            client->impl->send("/api/llm-documents/collections/" + bosbase::encodePathSegment(name ? name : ""), std::move(opts));
+        }, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_insert(
+    bosbase_client* client,
+    const char* collection,
+    const char* document_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(document_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : ""), std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_get(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            bosbase::SendOptions opts;
+            opts.query = query;
+            opts.headers = headers;
+            return client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_update(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* document_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(document_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "PATCH";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_delete(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "DELETE";
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_void([&]() {
+            client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : "") + "/" + bosbase::encodePathSegment(id ? id : ""), std::move(opts));
+        }, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_list(
+    bosbase_client* client,
+    const char* collection,
+    int page,
+    int per_page,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        if (page > 0) query["page"] = page;
+        if (per_page > 0) query["perPage"] = per_page;
+        bosbase::SendOptions opts;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : ""), std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_llm_query(
+    bosbase_client* client,
+    const char* collection,
+    const char* options_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!client || !client->impl) return -1;
+    try {
+        auto body = parse_json_or(options_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        bosbase::SendOptions opts;
+        opts.method = "POST";
+        opts.body = body;
+        opts.query = query;
+        opts.headers = headers;
+        return wrap_json([&]() {
+            return client->impl->send("/api/llm-documents/" + bosbase::encodePathSegment(collection ? collection : "") + "/documents/query", std::move(opts));
+        }, out_json, out_error);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+        return -1;
+    }
+}
+
+int bosbase_batch_collection_create(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error) {
+    if (!batch || !batch->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto attachments = convert_files(files, files_len);
+        std::optional<std::string> e = expand && *expand ? std::optional<std::string>(expand) : std::nullopt;
+        std::optional<std::string> fld = fields && *fields ? std::optional<std::string>(fields) : std::nullopt;
+        batch->impl->collection(collection ? collection : "").create(body, query, attachments, e, fld);
+        return 0;
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
+}
+
+int bosbase_batch_collection_upsert(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error) {
+    if (!batch || !batch->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto attachments = convert_files(files, files_len);
+        std::optional<std::string> e = expand && *expand ? std::optional<std::string>(expand) : std::nullopt;
+        std::optional<std::string> fld = fields && *fields ? std::optional<std::string>(fields) : std::nullopt;
+        batch->impl->collection(collection ? collection : "").upsert(body, query, attachments, e, fld);
+        return 0;
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
+}
+
+int bosbase_batch_collection_update(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* record_id,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error) {
+    if (!batch || !batch->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto attachments = convert_files(files, files_len);
+        std::optional<std::string> e = expand && *expand ? std::optional<std::string>(expand) : std::nullopt;
+        std::optional<std::string> fld = fields && *fields ? std::optional<std::string>(fields) : std::nullopt;
+        batch->impl->collection(collection ? collection : "").update(record_id ? record_id : "", body, query, attachments, e, fld);
+        return 0;
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
+}
+
+int bosbase_batch_collection_delete(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* record_id,
+    const char* body_json,
+    const char* query_json,
+    bosbase_error** out_error) {
+    if (!batch || !batch->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        batch->impl->collection(collection ? collection : "").remove(record_id ? record_id : "", body, query);
+        return 0;
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
+}
+
+int bosbase_batch_send(
+    bosbase_batch* batch,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error) {
+    if (!batch || !batch->impl) return -1;
+    try {
+        auto body = parse_json_or(body_json, nlohmann::json::object());
+        auto query = parse_query(query_json);
+        auto headers = parse_headers(headers_json);
+        return wrap_json([&]() {
+            return batch->impl->send(body, query, headers);
+        }, out_json, out_error);
+    } catch (const bosbase::ClientResponseError& ex) {
+        if (out_error) *out_error = make_error(ex);
+    } catch (const std::exception& ex) {
+        if (out_error) *out_error = make_error(ex.what());
+    }
+    return -1;
 }
 
 int bosbase_pubsub_publish(

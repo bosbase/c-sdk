@@ -238,7 +238,24 @@ int bosbase_graphql_query(
     char** out_json,
     bosbase_error** out_error);
 
+int bosbase_sql_execute(
+    bosbase_client* client,
+    const char* query,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
 int bosbase_vector_create_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* config_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_vector_update_collection(
     bosbase_client* client,
     const char* name,
     const char* config_json,
@@ -263,6 +280,7 @@ int bosbase_vector_delete_collection(
 
 int bosbase_vector_insert(
     bosbase_client* client,
+    const char* collection,
     const char* document_json,
     const char* query_json,
     const char* headers_json,
@@ -271,6 +289,7 @@ int bosbase_vector_insert(
 
 int bosbase_vector_batch_insert(
     bosbase_client* client,
+    const char* collection,
     const char* options_json,
     const char* query_json,
     const char* headers_json,
@@ -279,6 +298,7 @@ int bosbase_vector_batch_insert(
 
 int bosbase_vector_get(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* query_json,
     const char* headers_json,
@@ -287,6 +307,7 @@ int bosbase_vector_get(
 
 int bosbase_vector_update(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* document_json,
     const char* query_json,
@@ -296,6 +317,7 @@ int bosbase_vector_update(
 
 int bosbase_vector_delete(
     bosbase_client* client,
+    const char* collection,
     const char* id,
     const char* query_json,
     const char* headers_json,
@@ -303,6 +325,9 @@ int bosbase_vector_delete(
 
 int bosbase_vector_list(
     bosbase_client* client,
+    const char* collection,
+    int page,
+    int per_page,
     const char* query_json,
     const char* headers_json,
     char** out_json,
@@ -310,6 +335,7 @@ int bosbase_vector_list(
 
 int bosbase_vector_search(
     bosbase_client* client,
+    const char* collection,
     const char* options_json,
     const char* query_json,
     const char* headers_json,
@@ -330,6 +356,22 @@ int bosbase_cache_create(
     const char* query_json,
     const char* headers_json,
     char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_cache_update(
+    bosbase_client* client,
+    const char* name,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_cache_delete(
+    bosbase_client* client,
+    const char* name,
+    const char* query_json,
+    const char* headers_json,
     bosbase_error** out_error);
 
 int bosbase_cache_set_entry(
@@ -353,12 +395,314 @@ int bosbase_cache_get_entry(
     char** out_json,
     bosbase_error** out_error);
 
+int bosbase_cache_renew_entry(
+    bosbase_client* client,
+    const char* cache,
+    const char* key,
+    int ttl_seconds,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
 int bosbase_cache_delete_entry(
     bosbase_client* client,
     const char* cache,
     const char* key,
     const char* query_json,
     const char* headers_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_get_full_list(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_create(
+    bosbase_client* client,
+    const char* basename,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_upload(
+    bosbase_client* client,
+    const bosbase_file_attachment* file,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_delete(
+    bosbase_client* client,
+    const char* key,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_restore(
+    bosbase_client* client,
+    const char* key,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_backup_get_download_url(
+    bosbase_client* client,
+    const char* token,
+    const char* key,
+    char** out_url,
+    bosbase_error** out_error);
+
+int bosbase_cron_get_full_list(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_cron_run(
+    bosbase_client* client,
+    const char* job_id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_logs_get_list(
+    bosbase_client* client,
+    int page,
+    int per_page,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_logs_get_one(
+    bosbase_client* client,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_logs_get_stats(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_settings_get_all(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_settings_update(
+    bosbase_client* client,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_settings_test_s3(
+    bosbase_client* client,
+    const char* filesystem,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_settings_test_email(
+    bosbase_client* client,
+    const char* collection,
+    const char* to_email,
+    const char* template_name,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_settings_generate_apple_client_secret(
+    bosbase_client* client,
+    const char* client_id,
+    const char* team_id,
+    const char* key_id,
+    const char* private_key,
+    int duration,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_langchaingo_completions(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_langchaingo_rag(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_langchaingo_query_documents(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_langchaingo_sql(
+    bosbase_client* client,
+    const char* payload_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_list_collections(
+    bosbase_client* client,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_create_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* metadata_json,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_delete_collection(
+    bosbase_client* client,
+    const char* name,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_insert(
+    bosbase_client* client,
+    const char* collection,
+    const char* document_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_get(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_update(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* document_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_delete(
+    bosbase_client* client,
+    const char* collection,
+    const char* id,
+    const char* query_json,
+    const char* headers_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_list(
+    bosbase_client* client,
+    const char* collection,
+    int page,
+    int per_page,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+int bosbase_llm_query(
+    bosbase_client* client,
+    const char* collection,
+    const char* options_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
+    bosbase_error** out_error);
+
+bosbase_batch* bosbase_batch_new(bosbase_client* client);
+void bosbase_batch_free(bosbase_batch* batch);
+
+int bosbase_batch_collection_create(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error);
+
+int bosbase_batch_collection_upsert(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error);
+
+int bosbase_batch_collection_update(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* record_id,
+    const char* body_json,
+    const bosbase_file_attachment* files,
+    size_t files_len,
+    const char* expand,
+    const char* fields,
+    const char* query_json,
+    bosbase_error** out_error);
+
+int bosbase_batch_collection_delete(
+    bosbase_batch* batch,
+    const char* collection,
+    const char* record_id,
+    const char* body_json,
+    const char* query_json,
+    bosbase_error** out_error);
+
+int bosbase_batch_send(
+    bosbase_batch* batch,
+    const char* body_json,
+    const char* query_json,
+    const char* headers_json,
+    char** out_json,
     bosbase_error** out_error);
 
 int bosbase_pubsub_publish(

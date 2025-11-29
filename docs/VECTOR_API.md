@@ -13,6 +13,8 @@ The Vector API provides a unified interface for working with vector embeddings, 
 - Create recommendation systems
 - Enable semantic search capabilities
 
+> **API update**: Vector helpers now take the collection name as a dedicated argument (eg. `bosbase_vector_insert(client, "documents", ...)`) to match the JS SDK and the Go backend routes under `/api/vectors/{collection}`.
+
 ## Getting Started
 
 ```c
@@ -95,14 +97,13 @@ Insert a vector document with embedding and optional metadata.
 ```c
 const char* document = 
     "{"
-    "\"collection\":\"documents\","
     "\"vector\":[0.1,0.2,0.3,0.4],"
     "\"metadata\":{\"title\":\"Example\",\"category\":\"tech\"},"
     "\"content\":\"Example content text\""
     "}";
 
 char* inserted_json = NULL;
-if (bosbase_vector_insert(pb, document, "{}", "{}", 
+if (bosbase_vector_insert(pb, "documents", document, "{}", "{}", 
         &inserted_json, NULL) == 0) {
     printf("Document inserted: %s\n", inserted_json);
     bosbase_free_string(inserted_json);
@@ -116,7 +117,6 @@ Insert multiple documents at once.
 ```c
 const char* batch_options = 
     "{"
-    "\"collection\":\"documents\","
     "\"documents\":["
     "{\"vector\":[0.1,0.2,0.3],\"content\":\"Doc 1\"},"
     "{\"vector\":[0.4,0.5,0.6],\"content\":\"Doc 2\"}"
@@ -124,7 +124,7 @@ const char* batch_options =
     "}";
 
 char* batch_result = NULL;
-if (bosbase_vector_batch_insert(pb, batch_options, "{}", "{}", 
+if (bosbase_vector_batch_insert(pb, "documents", batch_options, "{}", "{}", 
         &batch_result, NULL) == 0) {
     printf("Batch inserted: %s\n", batch_result);
     bosbase_free_string(batch_result);
@@ -137,7 +137,7 @@ Retrieve a document by ID.
 
 ```c
 char* doc_json = NULL;
-if (bosbase_vector_get(pb, "DOCUMENT_ID", "{}", "{}", 
+if (bosbase_vector_get(pb, "documents", "DOCUMENT_ID", "{}", "{}", 
         &doc_json, NULL) == 0) {
     printf("Document: %s\n", doc_json);
     bosbase_free_string(doc_json);
@@ -154,7 +154,7 @@ const char* update_doc =
     "}";
 
 char* updated_json = NULL;
-if (bosbase_vector_update(pb, "DOCUMENT_ID", update_doc, 
+if (bosbase_vector_update(pb, "documents", "DOCUMENT_ID", update_doc, 
         "{}", "{}", &updated_json, NULL) == 0) {
     printf("Updated: %s\n", updated_json);
     bosbase_free_string(updated_json);
@@ -165,7 +165,7 @@ if (bosbase_vector_update(pb, "DOCUMENT_ID", update_doc,
 
 ```c
 bosbase_error* err = NULL;
-if (bosbase_vector_delete(pb, "DOCUMENT_ID", "{}", "{}", &err) != 0) {
+if (bosbase_vector_delete(pb, "documents", "DOCUMENT_ID", "{}", "{}", &err) != 0) {
     fprintf(stderr, "Delete failed: %s\n", err->message);
     bosbase_free_error(err);
 }
@@ -180,7 +180,6 @@ Perform similarity search.
 ```c
 const char* search_options = 
     "{"
-    "\"collection\":\"documents\","
     "\"queryVector\":[0.1,0.2,0.3,0.4],"
     "\"limit\":10,"
     "\"minScore\":0.5,"
@@ -189,7 +188,7 @@ const char* search_options =
     "}";
 
 char* results_json = NULL;
-if (bosbase_vector_search(pb, search_options, "{}", "{}", 
+if (bosbase_vector_search(pb, "documents", search_options, "{}", "{}", 
         &results_json, NULL) == 0) {
     // Parse results_json to get array of search results:
     // Each result contains:
@@ -206,9 +205,8 @@ if (bosbase_vector_search(pb, search_options, "{}", "{}",
 List all documents in a collection.
 
 ```c
-const char* query = "{\"collection\":\"documents\",\"limit\":100}";
 char* list_json = NULL;
-if (bosbase_vector_list(pb, query, "{}", &list_json, NULL) == 0) {
+if (bosbase_vector_list(pb, "documents", 1, 100, "{}", "{}", &list_json, NULL) == 0) {
     printf("Documents: %s\n", list_json);
     bosbase_free_string(list_json);
 }
@@ -238,20 +236,20 @@ int main() {
     
     // Insert document
     const char* doc = 
-        "{\"collection\":\"documents\","
+        "{"
         "\"vector\":[0.1,0.2,0.3],"
         "\"content\":\"Example\"}";
     char* inserted = NULL;
-    bosbase_vector_insert(pb, doc, "{}", "{}", &inserted, NULL);
+    bosbase_vector_insert(pb, "documents", doc, "{}", "{}", &inserted, NULL);
     bosbase_free_string(inserted);
     
     // Search
     const char* search = 
-        "{\"collection\":\"documents\","
+        "{"
         "\"queryVector\":[0.1,0.2,0.3],"
         "\"limit\":10}";
     char* results = NULL;
-    bosbase_vector_search(pb, search, "{}", "{}", &results, NULL);
+    bosbase_vector_search(pb, "documents", search, "{}", "{}", &results, NULL);
     printf("Results: %s\n", results);
     bosbase_free_string(results);
     
@@ -264,4 +262,3 @@ int main() {
 
 - [LLM Documents](./LLM_DOCUMENTS.md) - LLM document management
 - [LangChaingo API](./LANGCHAINGO_API.md) - RAG workflows
-
